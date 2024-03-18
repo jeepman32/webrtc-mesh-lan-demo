@@ -1,74 +1,122 @@
-import { Worker } from "worker_threads";
-
-// const tsx = new URL(import.meta.resolve("tsx/cli"));
-// const WORKERS_COUNT = 4;
-
-// for (let index = 0; index < WORKERS_COUNT; index++) {
-//   const PORT = (5001 + index).toString(10);
-
-//   const worker = new Worker(tsx, {
-//     env: { PORT },
-//     argv: ["./worker.ts"],
-//   });
-
-//   worker.on("message", (msg) => console.log(`Worker message received: ${msg}`));
-//   worker.on("error", (error) => console.error(error));
-//   worker.on("exit", (code) => console.log(`Worker exited with code ${code}.`));
-
-//   // Had some problems where the worker would asynchronously terminate, so manually pass the termination.
-//   process.on("SIGTERM", worker.terminate);
-
-//   // Linux really doesn't like it if you try to open all these ports within a few ms of each other, so we pump the brakes here.
-//   await new Promise((resolve) => setTimeout(resolve, 100));
-// }
-
+// @ts-expect-error
+import wrtc from "wrtc";
 import udp from "dgram";
+import SimplePeer from "simple-peer";
+import { createNameId } from "mnemonic-id";
 
-const news = [
-  "Borussia Dortmund wins German championship",
-  "Tornado warning for the Bay Area",
-  "More rain for the weekend",
-  "Android tablets take over the world",
-  "iPad2 sold out",
-  "Nation's rappers down to last two samples",
-];
+import peerFindingServer from "server/peerFindingServer";
 
-const server = udp.createSocket("udp4");
+export const serverName = createNameId();
 
-server.bind(() => {
-  server.setBroadcast(true);
-  server.setMulticastTTL(128);
+interface Message {
+  from: string;
+  to: string;
+  data: any;
+}
 
-  setInterval(() => {
-    const message = Buffer.from(
-      news[
-        Math.floor(Math.random() * news.length) as keyof typeof news
-      ] as string
-    );
-    server.send(message, 0, message.length, 5007, "224.1.1.1");
-  }, 3000);
+const RECEIVER_PORT = 5001;
+
+const peerConnections = new Map<string, SimplePeer.Instance>();
+
+const receiver = udp.createSocket("udp4");
+const transmitter = udp.createSocket("udp4");
+
+receiver.on("listening", function () {
+  receiver.setBroadcast(true);
+  receiver.setMulticastTTL(128);
+  receiver.addMembership("224.0.0.1");
 });
 
-server.on("message", (message, remote) => {
-  const serverAddress = server.remoteAddress().address;
-  if (remote.address !== serverAddress) {
-    console.log(
-      "SERVER From: " + remote.address + ":" + remote.port + " - " + message
-    );
+receiver.bind(RECEIVER_PORT);
+
+receiver.on("message", (rawMessage, _remote) => {
+  const {
+    from,
+    to,
+    data: message,
+  } = JSON.parse(rawMessage.toString()) as Message;
+
+  if (to !== serverName) {
+    return;
+  }
+
+  if (message.type === "answer") {
+    const initiatingPeer = peerConnections.get(from);
+
+    if (initiatingPeer) {
+      initiatingPeer.signal(message);
+    }
+  }
+
+  if (message.type === "offer") {
+    const peer = new SimplePeer({
+      initiator: false,
+      wrtc,
+      trickle: false,
+      allowHalfTrickle: false,
+      config: {
+        iceServers: [],
+      },
+      objectMode: false,
+    });
+
+    peer.signal(message);
+
+    peer.on("signal", (data) => {
+      const message = JSON.stringify({
+        from: serverName,
+        to: from,
+        data,
+      } satisfies Message);
+
+      transmitter.send(message, 0, message.length, RECEIVER_PORT, "224.0.0.1");
+    });
+
+    peer.on("connect", () => console.log(serverName, "connected to", from));
+    peer.on("error", () => console.error);
   }
 });
 
-const PORT = 5007;
-const client = udp.createSocket("udp4");
+const foundPeerCallback: Parameters<typeof peerFindingServer>[0] = (
+  peerName
+) => {
+  // Don't speak with yourself, it's weird.
+  if (peerName === serverName) {
+    return;
+  }
 
-client.on("listening", function () {
-  client.setBroadcast(true);
-  client.setMulticastTTL(128);
-  client.addMembership("224.1.1.1");
-});
+  const initiatingPeer = new SimplePeer({
+    initiator: true,
+    wrtc,
+    trickle: false,
+    allowHalfTrickle: false,
+    config: {
+      iceServers: [],
+    },
+    objectMode: false,
+  });
 
-client.on("message", (message, remote) => {
-  console.log("From: " + remote.address + ":" + remote.port + " - " + message);
-});
+  peerConnections.set(peerName, initiatingPeer);
 
-client.bind(PORT);
+  // When SimplePeers wants to connect to a peer, this is where we need to talk to the new peer.
+  initiatingPeer.on("signal", (data) => {
+    const message = JSON.stringify({
+      from: serverName,
+      to: peerName,
+      data,
+    } satisfies Message);
+
+    transmitter.send(message, 0, message.length, RECEIVER_PORT, "224.0.0.1");
+  });
+
+  initiatingPeer.on("connect", () =>
+    console.log(serverName, "initiator connected to", peerName)
+  );
+
+  initiatingPeer.on("stream", () => console.log("stream", serverName));
+  initiatingPeer.on("error", () => console.error);
+};
+
+// Start the peerServer to find our peers (friends)
+// It calls back when it's found a new friend
+peerFindingServer(foundPeerCallback);
