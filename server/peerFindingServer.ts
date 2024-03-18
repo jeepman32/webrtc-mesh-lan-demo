@@ -1,5 +1,5 @@
 import udp from "dgram";
-import { serverName } from "index";
+import { serverName } from "./peerManager";
 
 type IPv4Address = `${number}.${number}.${number}.${number}`;
 
