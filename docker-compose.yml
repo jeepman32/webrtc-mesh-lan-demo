@@ -12,6 +12,6 @@ services:
       - 3000
     deploy:
       mode: replicated
-      replicas: 4
+      replicas: 8
 networks:
   bus:
