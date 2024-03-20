@@ -4,6 +4,7 @@ import udp from "dgram";
 import SimplePeer from "simple-peer";
 import { createNameId } from "mnemonic-id";
 
+import { ports } from "../constants";
 import peerFindingServer from "./peerFindingServer";
 
 export const serverName = createNameId();
@@ -13,7 +14,6 @@ interface Message {
   to: string;
   data: any;
 }
-const RECEIVER_PORT = 5001;
 
 // Map of simple-peer connections by {[name: string]: Instance}
 const peerConnections = new Map<string, SimplePeer.Instance>();
@@ -29,7 +29,7 @@ receiver.on("listening", () => {
   receiver.addMembership("224.0.0.1");
 });
 
-receiver.bind(RECEIVER_PORT);
+receiver.bind(ports.PEER_MANAGER_PORT);
 receiver.on("message", (rawMessage) => {
   // Describe the message, its sender and its receiver
   const {
@@ -67,6 +67,7 @@ receiver.on("message", (rawMessage) => {
 
     peer.signal(message);
 
+    // If we get a signal request from simple-peer, package and send it, ensuring it meets our Message type
     peer.on("signal", (data) => {
       const message = JSON.stringify({
         from: serverName,
@@ -74,7 +75,13 @@ receiver.on("message", (rawMessage) => {
         data,
       } satisfies Message);
 
-      transmitter.send(message, 0, message.length, RECEIVER_PORT, "224.0.0.1");
+      transmitter.send(
+        message,
+        0,
+        message.length,
+        ports.PEER_MANAGER_PORT,
+        "224.0.0.1"
+      );
     });
 
     // And some tasty logging
@@ -112,7 +119,13 @@ const peerManager: Parameters<typeof peerFindingServer>[0] = (peerName) => {
       data,
     } satisfies Message);
 
-    transmitter.send(message, 0, message.length, RECEIVER_PORT, "224.0.0.1");
+    transmitter.send(
+      message,
+      0,
+      message.length,
+      ports.PEER_MANAGER_PORT,
+      "224.0.0.1"
+    );
   });
 
   // More tasty logging

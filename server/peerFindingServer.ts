@@ -1,13 +1,14 @@
 import udp from "dgram";
+
 import { serverName } from "./peerManager";
+import { ports } from "../constants";
 
 type IPv4Address = `${number}.${number}.${number}.${number}`;
-
 const peerFindingServer = (callback: (name: string) => void) => {
+  // A map of peers we've found, by address:port
   const peersFound = new Map<IPv4Address, number>();
 
-  const RECEIVER_PORT = 5000;
-
+  // Create tx/rx sockets
   const transmitter = udp.createSocket("udp4");
   const receiver = udp.createSocket("udp4");
 
@@ -15,11 +16,20 @@ const peerFindingServer = (callback: (name: string) => void) => {
     transmitter.setBroadcast(true);
     transmitter.setMulticastTTL(128);
 
+    // Create our message before sending so we can measure it's length
     const message = Buffer.from(JSON.stringify({ name: serverName }));
 
-    transmitter.send(message, 0, message.length, RECEIVER_PORT, "224.0.0.1");
+    // Send message to the multicast address of the host, so that our anonymous peers on the LAN can listen
+    transmitter.send(
+      message,
+      0,
+      message.length,
+      ports.PEER_FINDING_PORT,
+      "224.0.0.1"
+    );
   });
 
+  // Start listening for all anonymous peers on the LAN
   receiver.on("listening", function () {
     receiver.setBroadcast(true);
     receiver.setMulticastTTL(128);
@@ -35,10 +45,9 @@ const peerFindingServer = (callback: (name: string) => void) => {
     }
   });
 
-  receiver.bind(RECEIVER_PORT);
+  receiver.bind(ports.PEER_FINDING_PORT);
 
   process.on("beforeExit", () => {
-    console.log("killing...");
     transmitter.close();
     receiver.close();
   });
