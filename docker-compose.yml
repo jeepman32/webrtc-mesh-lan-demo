@@ -5,13 +5,13 @@ services:
       context: .
       target: development
     volumes:
-      - ./:/usr/src/app
+      - ./server:/usr/src/app
     networks:
       - bus
     expose:
       - 3000
     deploy:
       mode: replicated
-      replicas: 8
+      replicas: 4
 networks:
   bus:
