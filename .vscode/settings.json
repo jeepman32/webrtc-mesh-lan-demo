@@ -1,0 +1,14 @@
+{
+  "cSpell.words": [
+    "esdoc",
+    "foglet",
+    "Folkvir",
+    "mediasource",
+    "Minier",
+    "mochawesome",
+    "sortedindexby",
+    "tman",
+    "uglifyjs"
+  ],
+  "typescript.tsdk": "node_modules/typescript/lib"
+}
